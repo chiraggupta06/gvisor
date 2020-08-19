@@ -15,7 +15,9 @@
 #include "test/util/fs_util.h"
 
 #include <dirent.h>
+#include <linux/magic.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -627,6 +629,20 @@ PosixErrorOr<std::string> ProcessExePath(int pid) {
   }
 
   return ReadLink(absl::StrCat("/proc/", pid, "/exe"));
+}
+
+PosixErrorOr<bool> IsTmpfs(const std::string& path) {
+  struct statfs stat;
+  if (statfs(path.c_str(), &stat)) {
+    if (errno == ENOENT) {
+      // Nothing at path, don't raise this as an error. Instead, just report no
+      // tmpfs at path.
+      return false;
+    }
+    return PosixError(errno,
+                      absl::StrFormat("statfs(\"%s\", %#p)", path, &stat));
+  }
+  return stat.f_type == TMPFS_MAGIC;
 }
 
 }  // namespace testing
