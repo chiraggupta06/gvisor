@@ -34,6 +34,7 @@ package gofer
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,7 @@ import (
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/p9"
+	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/fs/fsutil"
 	fslock "gvisor.dev/gvisor/pkg/sentry/fs/lock"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
@@ -782,6 +784,7 @@ func (fs *filesystem) newDentry(ctx context.Context, file p9file, qid p9.QID, ma
 	if mask.NLink {
 		d.nlink = uint32(attr.NLink)
 	}
+	d.enableLeakCheck()
 	d.vfsd.Init(d)
 
 	fs.syncMu.Lock()
@@ -1122,6 +1125,19 @@ func (d *dentry) DecRef(ctx context.Context) {
 func (d *dentry) decRefLocked() {
 	if refs := atomic.AddInt64(&d.refs, -1); refs < 0 {
 		panic("gofer.dentry.decRefLocked() called without holding a reference")
+	}
+}
+
+func (d *dentry) finalize() {
+	if n := atomic.LoadInt64(&d.refs); n > 0 {
+		log.Warningf("refs %p owned by gofer.dentry garbage collected with ref count of %d (want 0 or -1)", d, n)
+	}
+}
+
+// enableLeakCheck checks for reference leaks when d gets garbage collected.
+func (d *dentry) enableLeakCheck() {
+	if refs.GetLeakMode() != refs.NoLeakChecking {
+		runtime.SetFinalizer(d, (*dentry).finalize)
 	}
 }
 
