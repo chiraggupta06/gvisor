@@ -20,12 +20,14 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	fslock "gvisor.dev/gvisor/pkg/sentry/fs/lock"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
+	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/unimpl"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/syserror"
 	"gvisor.dev/gvisor/pkg/usermem"
 	"gvisor.dev/gvisor/pkg/waiter"
+	"gvisor.dev/gvisor/tools/go_marshal/primitive"
 )
 
 // masterInode is the inode for the master end of the Terminal.
@@ -130,6 +132,11 @@ func (mfd *masterFileDescription) Write(ctx context.Context, src usermem.IOSeque
 
 // Ioctl implements vfs.FileDescriptionImpl.Ioctl.
 func (mfd *masterFileDescription) Ioctl(ctx context.Context, io usermem.IO, args arch.SyscallArguments) (uintptr, error) {
+	task := kernel.TaskFromContext(ctx)
+	if task == nil {
+		return 0, syserror.ENOTTY
+	}
+
 	switch cmd := args[1].Uint(); cmd {
 	case linux.FIONREAD: // linux.FIONREAD == linux.TIOCINQ
 		// Get the number of bytes in the output queue read buffer.
@@ -137,26 +144,25 @@ func (mfd *masterFileDescription) Ioctl(ctx context.Context, io usermem.IO, args
 	case linux.TCGETS:
 		// N.B. TCGETS on the master actually returns the configuration
 		// of the slave end.
-		return mfd.t.ld.getTermios(ctx, io, args)
+		return mfd.t.ld.getTermios(task, args)
 	case linux.TCSETS:
 		// N.B. TCSETS on the master actually affects the configuration
 		// of the slave end.
-		return mfd.t.ld.setTermios(ctx, io, args)
+		return mfd.t.ld.setTermios(task, args)
 	case linux.TCSETSW:
 		// TODO(b/29356795): This should drain the output queue first.
-		return mfd.t.ld.setTermios(ctx, io, args)
+		return mfd.t.ld.setTermios(task, args)
 	case linux.TIOCGPTN:
-		_, err := usermem.CopyObjectOut(ctx, io, args[2].Pointer(), uint32(mfd.t.n), usermem.IOOpts{
-			AddressSpaceActive: true,
-		})
+		nP := primitive.Uint32(mfd.t.n)
+		_, err := nP.CopyOut(task, args[2].Pointer())
 		return 0, err
 	case linux.TIOCSPTLCK:
 		// TODO(b/29356795): Implement pty locking. For now just pretend we do.
 		return 0, nil
 	case linux.TIOCGWINSZ:
-		return 0, mfd.t.ld.windowSize(ctx, io, args)
+		return 0, mfd.t.ld.windowSize(task, args)
 	case linux.TIOCSWINSZ:
-		return 0, mfd.t.ld.setWindowSize(ctx, io, args)
+		return 0, mfd.t.ld.setWindowSize(task, args)
 	case linux.TIOCSCTTY:
 		// Make the given terminal the controlling terminal of the
 		// calling process.

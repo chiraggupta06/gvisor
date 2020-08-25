@@ -20,11 +20,13 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	fslock "gvisor.dev/gvisor/pkg/sentry/fs/lock"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
+	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/syserror"
 	"gvisor.dev/gvisor/pkg/usermem"
 	"gvisor.dev/gvisor/pkg/waiter"
+	"gvisor.dev/gvisor/tools/go_marshal/primitive"
 )
 
 // slaveInode is the inode for the slave end of the Terminal.
@@ -134,26 +136,30 @@ func (sfd *slaveFileDescription) Write(ctx context.Context, src usermem.IOSequen
 
 // Ioctl implements vfs.FileDescriptionImpl.Ioctl.
 func (sfd *slaveFileDescription) Ioctl(ctx context.Context, io usermem.IO, args arch.SyscallArguments) (uintptr, error) {
+	task := kernel.TaskFromContext(ctx)
+	if task == nil {
+		return 0, syserror.ENOTTY
+	}
+
 	switch cmd := args[1].Uint(); cmd {
 	case linux.FIONREAD: // linux.FIONREAD == linux.TIOCINQ
 		// Get the number of bytes in the input queue read buffer.
 		return 0, sfd.inode.t.ld.inputQueueReadSize(ctx, io, args)
 	case linux.TCGETS:
-		return sfd.inode.t.ld.getTermios(ctx, io, args)
+		return sfd.inode.t.ld.getTermios(task, args)
 	case linux.TCSETS:
-		return sfd.inode.t.ld.setTermios(ctx, io, args)
+		return sfd.inode.t.ld.setTermios(task, args)
 	case linux.TCSETSW:
 		// TODO(b/29356795): This should drain the output queue first.
-		return sfd.inode.t.ld.setTermios(ctx, io, args)
+		return sfd.inode.t.ld.setTermios(task, args)
 	case linux.TIOCGPTN:
-		_, err := usermem.CopyObjectOut(ctx, io, args[2].Pointer(), uint32(sfd.inode.t.n), usermem.IOOpts{
-			AddressSpaceActive: true,
-		})
+		nP := primitive.Uint32(sfd.inode.t.n)
+		_, err := nP.CopyOut(task, args[2].Pointer())
 		return 0, err
 	case linux.TIOCGWINSZ:
-		return 0, sfd.inode.t.ld.windowSize(ctx, io, args)
+		return 0, sfd.inode.t.ld.windowSize(task, args)
 	case linux.TIOCSWINSZ:
-		return 0, sfd.inode.t.ld.setWindowSize(ctx, io, args)
+		return 0, sfd.inode.t.ld.setWindowSize(task, args)
 	case linux.TIOCSCTTY:
 		// Make the given terminal the controlling terminal of the
 		// calling process.

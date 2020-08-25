@@ -20,9 +20,11 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/fs"
 	"gvisor.dev/gvisor/pkg/sentry/fs/fsutil"
+	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/syserror"
 	"gvisor.dev/gvisor/pkg/usermem"
 	"gvisor.dev/gvisor/pkg/waiter"
+	"gvisor.dev/gvisor/tools/go_marshal/primitive"
 )
 
 // LINT.IfChange
@@ -136,26 +138,30 @@ func (sf *slaveFileOperations) Write(ctx context.Context, _ *fs.File, src userme
 
 // Ioctl implements fs.FileOperations.Ioctl.
 func (sf *slaveFileOperations) Ioctl(ctx context.Context, _ *fs.File, io usermem.IO, args arch.SyscallArguments) (uintptr, error) {
+	task := kernel.TaskFromContext(ctx)
+	if task == nil {
+		return 0, syserror.ENOTTY
+	}
+
 	switch cmd := args[1].Uint(); cmd {
 	case linux.FIONREAD: // linux.FIONREAD == linux.TIOCINQ
 		// Get the number of bytes in the input queue read buffer.
 		return 0, sf.si.t.ld.inputQueueReadSize(ctx, io, args)
 	case linux.TCGETS:
-		return sf.si.t.ld.getTermios(ctx, io, args)
+		return sf.si.t.ld.getTermios(task, args)
 	case linux.TCSETS:
-		return sf.si.t.ld.setTermios(ctx, io, args)
+		return sf.si.t.ld.setTermios(task, args)
 	case linux.TCSETSW:
 		// TODO(b/29356795): This should drain the output queue first.
-		return sf.si.t.ld.setTermios(ctx, io, args)
+		return sf.si.t.ld.setTermios(task, args)
 	case linux.TIOCGPTN:
-		_, err := usermem.CopyObjectOut(ctx, io, args[2].Pointer(), uint32(sf.si.t.n), usermem.IOOpts{
-			AddressSpaceActive: true,
-		})
+		nP := primitive.Uint32(sf.si.t.n)
+		_, err := nP.CopyOut(task, args[2].Pointer())
 		return 0, err
 	case linux.TIOCGWINSZ:
-		return 0, sf.si.t.ld.windowSize(ctx, io, args)
+		return 0, sf.si.t.ld.windowSize(task, args)
 	case linux.TIOCSWINSZ:
-		return 0, sf.si.t.ld.setWindowSize(ctx, io, args)
+		return 0, sf.si.t.ld.setWindowSize(task, args)
 	case linux.TIOCSCTTY:
 		// Make the given terminal the controlling terminal of the
 		// calling process.

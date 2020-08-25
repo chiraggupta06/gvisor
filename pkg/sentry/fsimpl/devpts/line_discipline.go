@@ -21,6 +21,7 @@ import (
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
+	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/syserror"
 	"gvisor.dev/gvisor/pkg/usermem"
@@ -113,27 +114,23 @@ func newLineDiscipline(termios linux.KernelTermios) *lineDiscipline {
 }
 
 // getTermios gets the linux.Termios for the tty.
-func (l *lineDiscipline) getTermios(ctx context.Context, io usermem.IO, args arch.SyscallArguments) (uintptr, error) {
+func (l *lineDiscipline) getTermios(task *kernel.Task, args arch.SyscallArguments) (uintptr, error) {
 	l.termiosMu.RLock()
 	defer l.termiosMu.RUnlock()
 	// We must copy a Termios struct, not KernelTermios.
 	t := l.termios.ToTermios()
-	_, err := usermem.CopyObjectOut(ctx, io, args[2].Pointer(), t, usermem.IOOpts{
-		AddressSpaceActive: true,
-	})
+	_, err := t.CopyOut(task, args[2].Pointer())
 	return 0, err
 }
 
 // setTermios sets a linux.Termios for the tty.
-func (l *lineDiscipline) setTermios(ctx context.Context, io usermem.IO, args arch.SyscallArguments) (uintptr, error) {
+func (l *lineDiscipline) setTermios(task *kernel.Task, args arch.SyscallArguments) (uintptr, error) {
 	l.termiosMu.Lock()
 	defer l.termiosMu.Unlock()
 	oldCanonEnabled := l.termios.LEnabled(linux.ICANON)
 	// We must copy a Termios struct, not KernelTermios.
 	var t linux.Termios
-	_, err := usermem.CopyObjectIn(ctx, io, args[2].Pointer(), &t, usermem.IOOpts{
-		AddressSpaceActive: true,
-	})
+	_, err := t.CopyIn(task, args[2].Pointer())
 	l.termios.FromTermios(t)
 
 	// If canonical mode is turned off, move bytes from inQueue's wait
@@ -150,21 +147,17 @@ func (l *lineDiscipline) setTermios(ctx context.Context, io usermem.IO, args arc
 	return 0, err
 }
 
-func (l *lineDiscipline) windowSize(ctx context.Context, io usermem.IO, args arch.SyscallArguments) error {
+func (l *lineDiscipline) windowSize(task *kernel.Task, args arch.SyscallArguments) error {
 	l.sizeMu.Lock()
 	defer l.sizeMu.Unlock()
-	_, err := usermem.CopyObjectOut(ctx, io, args[2].Pointer(), l.size, usermem.IOOpts{
-		AddressSpaceActive: true,
-	})
+	_, err := l.size.CopyOut(task, args[2].Pointer())
 	return err
 }
 
-func (l *lineDiscipline) setWindowSize(ctx context.Context, io usermem.IO, args arch.SyscallArguments) error {
+func (l *lineDiscipline) setWindowSize(task *kernel.Task, args arch.SyscallArguments) error {
 	l.sizeMu.Lock()
 	defer l.sizeMu.Unlock()
-	_, err := usermem.CopyObjectIn(ctx, io, args[2].Pointer(), &l.size, usermem.IOOpts{
-		AddressSpaceActive: true,
-	})
+	_, err := l.size.CopyIn(task, args[2].Pointer())
 	return err
 }
 
