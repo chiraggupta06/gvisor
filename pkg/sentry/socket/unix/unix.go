@@ -397,6 +397,10 @@ func extractEndpoint(t *kernel.Task, sockaddr []byte) (transport.BoundEndpoint, 
 		if e != nil {
 			return nil, syserr.FromError(e)
 		}
+		if ep == nil {
+			// No socket!
+			return nil, syserr.ErrConnectionRefused
+		}
 		return ep, nil
 	}
 
