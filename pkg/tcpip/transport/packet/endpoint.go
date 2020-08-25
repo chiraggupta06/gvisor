@@ -297,9 +297,9 @@ func (ep *endpoint) Readiness(mask waiter.EventMask) waiter.EventMask {
 // SetSockOpt implements tcpip.Endpoint.SetSockOpt. Packet sockets cannot be
 // used with SetSockOpt, and this function always returns
 // tcpip.ErrNotSupported.
-func (ep *endpoint) SetSockOpt(opt interface{}) *tcpip.Error {
+func (ep *endpoint) SetSockOpt(opt tcpip.SocketOption) *tcpip.Error {
 	switch opt.(type) {
-	case tcpip.SocketDetachFilterOption:
+	case *tcpip.SocketDetachFilterOption:
 		return nil
 
 	default:
@@ -366,9 +366,9 @@ func (ep *endpoint) takeLastError() *tcpip.Error {
 }
 
 // GetSockOpt implements tcpip.Endpoint.GetSockOpt.
-func (ep *endpoint) GetSockOpt(opt interface{}) *tcpip.Error {
+func (ep *endpoint) GetSockOpt(opt tcpip.SocketOption) *tcpip.Error {
 	switch opt.(type) {
-	case tcpip.ErrorOption:
+	case *tcpip.ErrorOption:
 		return ep.takeLastError()
 	}
 	return tcpip.ErrNotSupported

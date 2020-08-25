@@ -541,7 +541,8 @@ func DialContextTCP(ctx context.Context, s *stack.Stack, addr tcpip.FullAddress,
 		case <-notifyCh:
 		}
 
-		err = ep.GetSockOpt(tcpip.ErrorOption{})
+		var errOpt tcpip.ErrorOption
+		err = ep.GetSockOpt(&errOpt)
 	}
 	if err != nil {
 		ep.Close()
